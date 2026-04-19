@@ -106,10 +106,13 @@ In CasaOS, create a custom app or compose stack from this repository and use the
 
 Important notes:
 
-- mount `./app/data` so timezone and calendar settings survive container restarts
-- keep `.env` on the Raspberry Pi host and do not commit it
-- if you prefer, you can enter the three environment variables directly in CasaOS instead of using `env_file`
+- set these three environment variables in the CasaOS UI:
+  - `TELEGRAM_BOT_TOKEN`
+  - `TODOIST_API_TOKEN`
+  - `ADMIN_USER_ID`
+- you do not need to mount or copy a `.env` file in CasaOS if you set variables in the UI
 - the container runs `python -m app.main` automatically
+- the compose file uses a persistent Docker volume for app data
 
 ### Docker Data Persistence
 
@@ -118,7 +121,21 @@ The container stores runtime files in:
 - `/app/app/data/settings.json`
 - `/app/app/data/bot.lock`
 
-These are mapped from the host path `./app/data` by `docker-compose.yml`.
+These are stored in the persistent Docker volume `today-bot-data`.
+
+If you prefer a host bind mount in CasaOS, replace:
+
+```yaml
+volumes:
+  - today-bot-data:/app/app/data
+```
+
+with something like:
+
+```yaml
+volumes:
+  - /DATA/AppData/today-bot/data:/app/app/data
+```
 
 ## Telegram Commands
 

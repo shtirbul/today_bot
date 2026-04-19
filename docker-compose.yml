@@ -4,7 +4,12 @@ services:
       context: .
     container_name: today-bot
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TODOIST_API_TOKEN: ${TODOIST_API_TOKEN:-}
+      ADMIN_USER_ID: ${ADMIN_USER_ID:-}
     volumes:
-      - ./app/data:/app/app/data
+      - today-bot-data:/app/app/data
+
+volumes:
+  today-bot-data:
