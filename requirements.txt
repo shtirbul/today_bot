@@ -1,0 +1,6 @@
+APScheduler
+icalendar
+recurring-ical-events
+python-dotenv
+python-telegram-bot
+requests
