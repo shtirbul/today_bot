@@ -1,0 +1,8 @@
+.git
+.gitignore
+.env
+.venv
+__pycache__/
+*.py[cod]
+app/data/
+.DS_Store

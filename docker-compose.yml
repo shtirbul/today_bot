@@ -1,0 +1,10 @@
+services:
+  today-bot:
+    build:
+      context: .
+    container_name: today-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./app/data:/app/app/data

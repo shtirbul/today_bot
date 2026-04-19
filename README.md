@@ -76,6 +76,50 @@ Stop the running bot cleanly:
 python3 -m app.stop
 ```
 
+## Run with Docker
+
+The project includes a multi-arch Docker setup that works on Raspberry Pi and can be used in CasaOS.
+
+### Files
+
+- `Dockerfile` builds the bot image
+- `docker-compose.yml` runs the container with environment variables and persistent data
+- `.dockerignore` keeps local secrets and runtime files out of the image build context
+
+### Start locally with Docker
+
+Make sure `.env` exists in the project root, then run:
+
+```bash
+docker compose up -d --build
+```
+
+Stop the container:
+
+```bash
+docker compose down
+```
+
+### CasaOS on Raspberry Pi
+
+In CasaOS, create a custom app or compose stack from this repository and use the included `docker-compose.yml`.
+
+Important notes:
+
+- mount `./app/data` so timezone and calendar settings survive container restarts
+- keep `.env` on the Raspberry Pi host and do not commit it
+- if you prefer, you can enter the three environment variables directly in CasaOS instead of using `env_file`
+- the container runs `python -m app.main` automatically
+
+### Docker Data Persistence
+
+The container stores runtime files in:
+
+- `/app/app/data/settings.json`
+- `/app/app/data/bot.lock`
+
+These are mapped from the host path `./app/data` by `docker-compose.yml`.
+
 ## Telegram Commands
 
 - `/start` - show the main menu
