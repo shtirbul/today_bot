@@ -159,6 +159,11 @@ Forwarded messages sent to the bot in a private chat are automatically saved to 
 - task title: `Forwarded from: <source>`
 - task description: full message text/caption
 
+Daily inbox reminder behavior:
+
+- if Inbox task count is greater than `0`, bot sends a cleanup reminder with task count
+- if Inbox task count is `0`, bot sends a motivational message instead
+
 ## Admin Controls
 
 The admin panel in Telegram supports:
@@ -185,5 +190,8 @@ The entire `app/data/` directory is ignored by git.
 ## Notes
 
 - Todoist requests use `https://api.todoist.com/api/v1`
+- weather uses Open-Meteo forecast + air quality endpoints
+- rain warning is highlighted when precipitation probability is `>=30%`
+- UV warning is highlighted when UV index is `>=5`
 - Calendar sources support both `https://` and `webcal://` URLs
 - If the bot says another instance is running, use `python3 -m app.stop` or remove a stale lock by starting the bot again after the old process is gone
