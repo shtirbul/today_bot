@@ -1,7 +1,9 @@
 import atexit
 import fcntl
+import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,6 +21,34 @@ except ImportError:
 
 
 LOCK_FILE_HANDLE = None
+
+
+def get_log_path() -> Path:
+    return Path(__file__).resolve().parent / "data" / "bot.log"
+
+
+def setup_logging(log_path: Path) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+    )
+    file_handler = RotatingFileHandler(
+        log_path,
+        maxBytes=1_000_000,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(stream_handler)
 
 
 def get_lock_path() -> Path:
@@ -71,6 +101,9 @@ def is_process_running(pid: int) -> bool:
 
 def main() -> None:
     load_dotenv()
+    log_path = get_log_path()
+    setup_logging(log_path)
+    logger = logging.getLogger(__name__)
 
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     todoist_api_token = os.getenv("TODOIST_API_TOKEN")
@@ -96,6 +129,7 @@ def main() -> None:
     try:
         acquire_single_instance_lock(lock_path)
     except RuntimeError as error:
+        logger.error(str(error))
         print(str(error))
         sys.exit(1)
 
@@ -108,6 +142,8 @@ def main() -> None:
         settings_service=settings_service,
         admin_user_id=int(admin_user_id),
     )
+    application.bot_data["log_path"] = str(log_path)
+    logger.info("Bot startup complete")
     application.run_polling()
 
 

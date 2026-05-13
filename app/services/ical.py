@@ -1,11 +1,15 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+import logging
 from urllib.parse import urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import recurring_ical_events
 import requests
 from icalendar import Calendar
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,6 +54,11 @@ class IcalService:
                     day_end=day_end,
                 )
             except Exception as error:
+                logger.warning(
+                    "Calendar fetch failed: source=%s error=%s",
+                    calendar_url,
+                    error,
+                )
                 errors.append(CalendarFetchError(source=calendar_url, message=str(error)))
                 continue
 

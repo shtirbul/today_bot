@@ -1,5 +1,7 @@
 from collections import defaultdict
 from datetime import date, datetime, time
+import logging
+from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -23,6 +25,9 @@ except ImportError:
     from services.ical import CalendarEvent, IcalService
     from services.settings import SettingsService
     from services.todoist import TodoistService
+
+
+logger = logging.getLogger(__name__)
 
 
 def create_application(
@@ -91,6 +96,38 @@ def create_application(
         if len(summary) > 60:
             return f"{summary[:57]}..."
         return summary
+
+    def read_recent_logs(context: ContextTypes.DEFAULT_TYPE, *, line_count: int = 80) -> str:
+        log_path_value = context.application.bot_data.get("log_path")
+        if not log_path_value:
+            return "Log file is not configured."
+
+        log_path = Path(log_path_value)
+        if not log_path.exists():
+            return "Log file does not exist yet."
+
+        with log_path.open("r", encoding="utf-8") as file:
+            lines = file.readlines()
+
+        if not lines:
+            return "Log file is empty."
+
+        return "".join(lines[-line_count:]).strip()
+
+    async def send_text_chunks(
+        update: Update, text: str, *, chunk_size: int = 3500
+    ) -> None:
+        message = update.effective_message
+        if message is None:
+            return
+
+        if not text:
+            await message.reply_text("No log output.")
+            return
+
+        for start in range(0, len(text), chunk_size):
+            chunk = text[start : start + chunk_size]
+            await message.reply_text(chunk)
 
     def schedule_morning_digest() -> None:
         job_queue = application.job_queue
@@ -239,6 +276,7 @@ def create_application(
         try:
             grouped_tasks = get_tasks_grouped_for_today(timezone_name)
         except Exception:
+            logger.exception("Failed to fetch Todoist tasks for morning digest")
             grouped_tasks = {}
             lines.extend(
                 [
@@ -261,6 +299,7 @@ def create_application(
         try:
             grouped_events, warning_sources = get_calendar_events_for_today(timezone_name)
         except Exception:
+            logger.exception("Failed to fetch calendar events for morning digest")
             grouped_events = {}
             warning_sources = []
             lines.extend(["📅 События календаря:", "", "Не удалось загрузить события."])
@@ -397,6 +436,7 @@ def create_application(
         try:
             message = build_tasks_message(timezone_name)
         except Exception:
+            logger.exception("Failed to build tasks message")
             await update.message.reply_text("Failed to fetch Todoist data")
             return
 
@@ -414,6 +454,7 @@ def create_application(
         try:
             message = build_events_message(timezone_name)
         except Exception:
+            logger.exception("Failed to build events message")
             await update.message.reply_text("Failed to fetch calendar events")
             return
 
@@ -441,8 +482,25 @@ def create_application(
         try:
             await send_morning_digest_to_chat(context, update.effective_chat.id)
         except Exception:
+            logger.exception("Failed to send morning test digest")
             await update.message.reply_text("Failed to send morning digest")
             return
+
+    async def logs_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not is_admin(update):
+            await update.message.reply_text("❌ Access denied")
+            return
+
+        try:
+            logs_text = read_recent_logs(context)
+        except Exception:
+            logger.exception("Failed to read bot logs")
+            await update.message.reply_text("Failed to read logs")
+            return
+
+        await send_text_chunks(update, logs_text)
 
     async def admin_command(
         update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -479,6 +537,7 @@ def create_application(
             try:
                 await send_morning_digest_to_chat(context, update.effective_chat.id)
             except Exception:
+                logger.exception("Failed to send morning digest from admin menu")
                 await query.answer("Failed to send morning digest", show_alert=True)
                 return
             return
@@ -563,14 +622,21 @@ def create_application(
             await admin_command(update, context)
             return
 
+    async def error_handler(
+        update: object, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        logger.exception("Unhandled Telegram error", exc_info=context.error)
+
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CommandHandler("events", events_command))
+    application.add_handler(CommandHandler("logs", logs_command))
     application.add_handler(CommandHandler("morning_test", morning_test_command))
     application.add_handler(CommandHandler("tasks", tasks_command))
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^(admin:|nav:)"))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, settings_input)
     )
+    application.add_error_handler(error_handler)
     schedule_morning_digest()
     return application
