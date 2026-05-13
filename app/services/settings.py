@@ -54,6 +54,35 @@ class SettingsService:
         self._write_settings(settings)
         return calendar_urls
 
+    def get_weather_location(self) -> tuple[float, float] | None:
+        settings = self._read_settings()
+        latitude = settings.get("weather_latitude")
+        longitude = settings.get("weather_longitude")
+
+        if latitude is None or longitude is None:
+            return None
+
+        try:
+            latitude_value = float(latitude)
+            longitude_value = float(longitude)
+        except (TypeError, ValueError):
+            return None
+
+        if not (-90 <= latitude_value <= 90 and -180 <= longitude_value <= 180):
+            return None
+        return latitude_value, longitude_value
+
+    def set_weather_location(self, latitude: float, longitude: float) -> tuple[float, float]:
+        latitude_value = float(latitude)
+        longitude_value = float(longitude)
+        self._validate_coordinates(latitude_value, longitude_value)
+
+        settings = self._read_settings()
+        settings["weather_latitude"] = latitude_value
+        settings["weather_longitude"] = longitude_value
+        self._write_settings(settings)
+        return latitude_value, longitude_value
+
     def _validate_timezone(self, timezone_name: str) -> None:
         try:
             ZoneInfo(timezone_name)
@@ -64,6 +93,12 @@ class SettingsService:
         parsed_url = urlparse(calendar_url)
         if parsed_url.scheme not in {"http", "https", "webcal"} or not parsed_url.netloc:
             raise ValueError(f"Invalid calendar URL: {calendar_url}")
+
+    def _validate_coordinates(self, latitude: float, longitude: float) -> None:
+        if not (-90 <= latitude <= 90):
+            raise ValueError(f"Invalid latitude: {latitude}")
+        if not (-180 <= longitude <= 180):
+            raise ValueError(f"Invalid longitude: {longitude}")
 
     def _read_settings(self) -> dict:
         if not self.settings_path.exists():

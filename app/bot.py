@@ -22,10 +22,12 @@ try:
     from app.services.ical import CalendarEvent, IcalService
     from app.services.settings import SettingsService
     from app.services.todoist import TodoistService
+    from app.services.weather import WeatherService
 except ImportError:
     from services.ical import CalendarEvent, IcalService
     from services.settings import SettingsService
     from services.todoist import TodoistService
+    from services.weather import WeatherService
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,7 @@ def create_application(
     ical_service: IcalService,
     todoist_service: TodoistService,
     settings_service: SettingsService,
+    weather_service: WeatherService,
     admin_user_id: int,
 ) -> Application:
     application = ApplicationBuilder().token(bot_token).build()
@@ -51,6 +54,7 @@ def create_application(
     def clear_user_state(context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data.pop("awaiting_timezone", None)
         context.user_data.pop("awaiting_calendar_url", None)
+        context.user_data.pop("awaiting_weather_location", None)
 
     def back_keyboard(target: str) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
@@ -68,6 +72,7 @@ def create_application(
             [
                 [InlineKeyboardButton("🕒 Timezone", callback_data="admin:timezone")],
                 [InlineKeyboardButton("🗓 Calendars", callback_data="admin:calendars")],
+                [InlineKeyboardButton("🌤 Weather location", callback_data="admin:weather_location")],
                 [InlineKeyboardButton("🌅 Morning test", callback_data="admin:morning_test")],
                 [InlineKeyboardButton("📥 Inbox reminder test", callback_data="admin:inbox_reminder_test")],
                 [InlineKeyboardButton("⬅️ Назад", callback_data="nav:close")],
@@ -98,6 +103,65 @@ def create_application(
         if len(summary) > 60:
             return f"{summary[:57]}..."
         return summary
+
+    def format_weather_location() -> str:
+        location = settings_service.get_weather_location()
+        if location is None:
+            return "Not configured"
+        lat, lon = location
+        return f"{lat:.4f}, {lon:.4f}"
+
+    def aqi_label(us_aqi: float | None) -> str:
+        if us_aqi is None:
+            return "AQI unavailable"
+        if us_aqi <= 50:
+            return "Good"
+        if us_aqi <= 100:
+            return "Moderate"
+        if us_aqi <= 150:
+            return "Unhealthy for sensitive groups"
+        if us_aqi <= 200:
+            return "Unhealthy"
+        if us_aqi <= 300:
+            return "Very Unhealthy"
+        return "Hazardous"
+
+    def build_weather_message() -> str:
+        location = settings_service.get_weather_location()
+        if location is None:
+            return (
+                "🌤 Погода\n"
+                "Геопозиция не настроена. Открой /admin -> Weather location."
+            )
+
+        latitude, longitude = location
+        snapshot = weather_service.get_snapshot(latitude, longitude)
+
+        lines = [
+            "🌤 Погода (на сейчас)",
+            f"🌡 Температура: {snapshot.temperature_c:.1f}°C",
+        ]
+
+        precip = snapshot.precipitation_probability
+        if precip >= 30:
+            lines.append(f"☔ Ожидается дождь: {precip:.0f}%")
+        else:
+            lines.append(f"🌦 Вероятность осадков: {precip:.0f}%")
+
+        uv = snapshot.uv_index
+        if uv >= 5:
+            lines.append(f"⚠️ UV index высокий: {uv:.1f}")
+        else:
+            lines.append(f"☀️ UV index: {uv:.1f}")
+
+        if snapshot.us_aqi is None:
+            lines.append("😷 Качество воздуха: AQI unavailable")
+        else:
+            lines.append(
+                f"😷 Качество воздуха: AQI {snapshot.us_aqi:.0f} ({aqi_label(snapshot.us_aqi)})"
+            )
+
+        return "\n".join(lines)
 
     def get_forward_source_label(update: Update) -> str:
         message = update.effective_message
@@ -386,6 +450,13 @@ def create_application(
         lines = ["🌅 Доброе утро!", ""]
 
         try:
+            weather_message = build_weather_message()
+        except Exception:
+            logger.exception("Failed to fetch weather for morning digest")
+            weather_message = "🌤 Погода\nНе удалось получить данные о погоде."
+        lines.extend([weather_message, ""])
+
+        try:
             grouped_tasks = get_tasks_grouped_for_today(timezone_name)
         except Exception:
             logger.exception("Failed to fetch Todoist tasks for morning digest")
@@ -510,6 +581,51 @@ def create_application(
         await update.effective_message.reply_text(
             text=text,
             reply_markup=back_keyboard("admin"),
+        )
+
+    async def show_weather_location_menu(
+        update: Update, context: ContextTypes.DEFAULT_TYPE, *, as_edit: bool
+    ) -> None:
+        clear_user_state(context)
+        current_location = format_weather_location()
+        text = (
+            "Weather location settings\n\n"
+            f"Current location: {current_location}\n\n"
+            "Use buttons below:\n"
+            "- Auto detect from server IP\n"
+            "- Set manually (lat,lon)"
+        )
+        markup = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("🛰 Auto detect from server IP", callback_data="admin:weather:auto")],
+                [InlineKeyboardButton("✍️ Set manually", callback_data="admin:weather:manual")],
+                [InlineKeyboardButton("⬅️ Назад", callback_data="nav:admin")],
+            ]
+        )
+
+        if as_edit and update.callback_query is not None:
+            await update.callback_query.edit_message_text(text=text, reply_markup=markup)
+            return
+
+        await update.effective_message.reply_text(text=text, reply_markup=markup)
+
+    async def show_weather_manual_input(
+        update: Update, context: ContextTypes.DEFAULT_TYPE, *, as_edit: bool
+    ) -> None:
+        clear_user_state(context)
+        context.user_data["awaiting_weather_location"] = True
+        text = "Send weather location as `latitude,longitude`.\nExample: `41.3111,69.2797`"
+
+        if as_edit and update.callback_query is not None:
+            await update.callback_query.edit_message_text(
+                text=text,
+                reply_markup=back_keyboard("admin_weather"),
+            )
+            return
+
+        await update.effective_message.reply_text(
+            text=text,
+            reply_markup=back_keyboard("admin_weather"),
         )
 
     async def show_calendars_menu(
@@ -704,6 +820,10 @@ def create_application(
             await show_calendars_menu(update, context, as_edit=True)
             return
 
+        if query.data == "admin:weather_location":
+            await show_weather_location_menu(update, context, as_edit=True)
+            return
+
         if query.data == "admin:morning_test":
             try:
                 await send_morning_digest_to_chat(context, update.effective_chat.id)
@@ -726,6 +846,23 @@ def create_application(
             await show_add_calendar_menu(update, context, as_edit=True)
             return
 
+        if query.data == "admin:weather:manual":
+            await show_weather_manual_input(update, context, as_edit=True)
+            return
+
+        if query.data == "admin:weather:auto":
+            try:
+                latitude, longitude = weather_service.detect_coordinates_from_ip()
+                settings_service.set_weather_location(latitude, longitude)
+            except Exception:
+                logger.exception("Failed to auto-detect weather location from server IP")
+                await query.answer("Failed to detect location", show_alert=True)
+                return
+
+            await query.answer("Location detected")
+            await show_weather_location_menu(update, context, as_edit=True)
+            return
+
         if query.data and query.data.startswith("admin:calendar:remove:"):
             _, _, _, index_text = query.data.split(":")
             try:
@@ -743,6 +880,10 @@ def create_application(
 
         if query.data == "nav:admin_calendars":
             await show_calendars_menu(update, context, as_edit=True)
+            return
+
+        if query.data == "nav:admin_weather":
+            await show_weather_location_menu(update, context, as_edit=True)
             return
 
         if query.data == "nav:close":
@@ -789,6 +930,26 @@ def create_application(
             clear_user_state(context)
             await update.message.reply_text("Calendar added")
             await show_calendars_menu(update, context, as_edit=False)
+            return
+
+        if context.user_data.get("awaiting_weather_location"):
+            try:
+                lat_text, lon_text = [part.strip() for part in message_text.split(",", 1)]
+                latitude = float(lat_text)
+                longitude = float(lon_text)
+                settings_service.set_weather_location(latitude, longitude)
+            except (ValueError, TypeError):
+                await update.message.reply_text(
+                    "Invalid format. Send as `latitude,longitude`, example: `41.3111,69.2797`",
+                    reply_markup=back_keyboard("admin_weather"),
+                )
+                return
+
+            clear_user_state(context)
+            await update.message.reply_text(
+                f"Weather location updated: {latitude:.4f}, {longitude:.4f}"
+            )
+            await show_weather_location_menu(update, context, as_edit=False)
             return
 
         if message_text == tasks_button:

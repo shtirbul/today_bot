@@ -8,6 +8,7 @@ Telegram bot for a personal daily briefing. It combines Todoist tasks and iCal c
 - Shows events from one or more iCal calendars
 - Sends a scheduled morning digest
 - Sends a daily 20:00 reminder to clean Todoist Inbox
+- Adds weather to the morning digest (temperature, precipitation chance, UV, air quality)
 - Saves forwarded messages to Todoist Inbox automatically
 - Exposes recent bot logs with `/logs` for quick diagnostics
 - Supports admin-only controls inside Telegram
@@ -19,6 +20,7 @@ Telegram bot for a personal daily briefing. It combines Todoist tasks and iCal c
 - Python
 - `python-telegram-bot`
 - Todoist API v1
+- Open-Meteo API
 - iCal parsing with `icalendar` and `recurring-ical-events`
 - Local JSON settings storage
 
@@ -33,7 +35,8 @@ Telegram bot for a personal daily briefing. It combines Todoist tasks and iCal c
 │   └── services/
 │       ├── ical.py
 │       ├── settings.py
-│       └── todoist.py
+│       ├── todoist.py
+│       └── weather.py
 ├── requirements.txt
 └── .env
 ```
@@ -162,6 +165,7 @@ The admin panel in Telegram supports:
 
 - timezone updates
 - adding calendar ICS URLs
+- weather location setup (auto by server IP or manual coordinates)
 - removing configured calendars
 - sending a test morning digest
 - sending a test inbox reminder

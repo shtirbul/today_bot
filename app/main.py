@@ -13,11 +13,13 @@ try:
     from app.services.ical import IcalService
     from app.services.settings import SettingsService
     from app.services.todoist import TodoistService
+    from app.services.weather import WeatherService
 except ImportError:
     from bot import create_application
     from services.ical import IcalService
     from services.settings import SettingsService
     from services.todoist import TodoistService
+    from services.weather import WeatherService
 
 
 LOCK_FILE_HANDLE = None
@@ -135,11 +137,13 @@ def main() -> None:
 
     todoist_service = TodoistService(todoist_api_token)
     ical_service = IcalService()
+    weather_service = WeatherService()
     application = create_application(
         bot_token=bot_token,
         ical_service=ical_service,
         todoist_service=todoist_service,
         settings_service=settings_service,
+        weather_service=weather_service,
         admin_user_id=int(admin_user_id),
     )
     application.bot_data["log_path"] = str(log_path)
