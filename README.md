@@ -7,6 +7,8 @@ Telegram bot for a personal daily briefing. It combines Todoist tasks and iCal c
 - Shows Todoist tasks for today and overdue tasks
 - Shows events from one or more iCal calendars
 - Sends a scheduled morning digest
+- Saves forwarded messages to Todoist Inbox automatically
+- Exposes recent bot logs with `/logs` for quick diagnostics
 - Supports admin-only controls inside Telegram
 - Lets you configure timezone and calendar sources from the bot UI
 - Prevents duplicate bot instances with a local lock file
@@ -144,6 +146,12 @@ volumes:
 - `/events` - show today's calendar events
 - `/admin` - open admin controls
 - `/morning_test` - send the morning digest immediately
+- `/logs` - show recent bot log lines (admin only)
+
+Forwarded messages sent to the bot in a private chat are automatically saved to Todoist Inbox:
+
+- task title: `Forwarded from: <source>`
+- task description: full message text/caption
 
 ## Admin Controls
 
@@ -162,6 +170,7 @@ Runtime data is stored under `app/data/`.
 
 - `app/data/settings.json` stores timezone and calendar URLs
 - `app/data/bot.lock` is used to prevent multiple running instances
+- `app/data/bot.log` stores rotating runtime logs used by `/logs`
 
 The entire `app/data/` directory is ignored by git.
 

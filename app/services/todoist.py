@@ -42,6 +42,34 @@ class TodoistService:
         logger.info("Todoist request succeeded: %s params=%s", endpoint, params)
         return data.get("results", [])
 
+    def _post(self, endpoint: str, payload: dict) -> dict:
+        url = f"{self.BASE_URL}{endpoint}"
+        try:
+            response = requests.post(
+                url,
+                headers=self.headers,
+                json=payload,
+                timeout=30,
+            )
+        except requests.RequestException:
+            logger.exception("Todoist request failed: POST %s payload=%s", endpoint, payload)
+            raise
+
+        if not response.ok:
+            logger.error(
+                "Todoist API request failed: POST endpoint=%s payload=%s status=%s body=%s",
+                endpoint,
+                payload,
+                response.status_code,
+                response.text,
+            )
+            raise Exception(
+                f"Todoist API request failed: {response.status_code} {response.text}"
+            )
+
+        logger.info("Todoist request succeeded: POST %s", endpoint)
+        return response.json()
+
     def get_tasks(self) -> list[dict]:
         return self._get("/tasks")
 
@@ -50,3 +78,9 @@ class TodoistService:
 
     def get_projects(self) -> list[dict]:
         return self._get("/projects")
+
+    def create_task(self, *, content: str, description: str = "") -> dict:
+        payload = {"content": content}
+        if description:
+            payload["description"] = description
+        return self._post("/tasks", payload)

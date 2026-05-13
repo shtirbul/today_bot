@@ -97,6 +97,58 @@ def create_application(
             return f"{summary[:57]}..."
         return summary
 
+    def get_forward_source_label(update: Update) -> str:
+        message = update.effective_message
+        if message is None:
+            return "Forwarded message"
+
+        origin = getattr(message, "forward_origin", None)
+        if origin is not None:
+            sender_user = getattr(origin, "sender_user", None)
+            if sender_user is not None:
+                parts = [p for p in (sender_user.first_name, sender_user.last_name) if p]
+                full_name = " ".join(parts).strip()
+                if full_name:
+                    return full_name
+                if sender_user.username:
+                    return f"@{sender_user.username}"
+                return "Forwarded user"
+
+            sender_user_name = getattr(origin, "sender_user_name", None)
+            if sender_user_name:
+                return str(sender_user_name)
+
+            sender_chat = getattr(origin, "sender_chat", None)
+            if sender_chat is not None and getattr(sender_chat, "title", None):
+                return str(sender_chat.title)
+
+            chat = getattr(origin, "chat", None)
+            if chat is not None and getattr(chat, "title", None):
+                return str(chat.title)
+
+        if getattr(message, "forward_from_chat", None) is not None:
+            return str(message.forward_from_chat.title)
+        if getattr(message, "forward_sender_name", None):
+            return str(message.forward_sender_name)
+        if getattr(message, "forward_from", None) is not None:
+            user = message.forward_from
+            parts = [p for p in (user.first_name, user.last_name) if p]
+            full_name = " ".join(parts).strip()
+            if full_name:
+                return full_name
+            if user.username:
+                return f"@{user.username}"
+        return "Forwarded message"
+
+    def get_forward_text(update: Update) -> str:
+        message = update.effective_message
+        if message is None:
+            return "(no text)"
+        body = (message.text or message.caption or "").strip()
+        if body:
+            return body
+        return "(no text)"
+
     def read_recent_logs(context: ContextTypes.DEFAULT_TYPE, *, line_count: int = 80) -> str:
         log_path_value = context.application.bot_data.get("log_path")
         if not log_path_value:
@@ -502,6 +554,26 @@ def create_application(
 
         await send_text_chunks(update, logs_text)
 
+    async def forwarded_message_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not is_admin(update):
+            await update.message.reply_text("❌ Access denied")
+            return
+
+        source_label = get_forward_source_label(update)
+        message_text = get_forward_text(update)
+        task_title = f"Forwarded from: {source_label}"
+
+        try:
+            todoist_service.create_task(content=task_title, description=message_text)
+        except Exception:
+            logger.exception("Failed to create task from forwarded message")
+            await update.message.reply_text("Failed to save forwarded message to Todoist")
+            return
+
+        await update.message.reply_text("Saved to Todoist Inbox")
+
     async def admin_command(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -634,6 +706,7 @@ def create_application(
     application.add_handler(CommandHandler("morning_test", morning_test_command))
     application.add_handler(CommandHandler("tasks", tasks_command))
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^(admin:|nav:)"))
+    application.add_handler(MessageHandler(filters.FORWARDED, forwarded_message_command))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, settings_input)
     )
