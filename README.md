@@ -7,6 +7,7 @@ Telegram bot for a personal daily briefing. It combines Todoist tasks and iCal c
 - Shows Todoist tasks for today and overdue tasks
 - Shows events from one or more iCal calendars
 - Sends a scheduled morning digest
+- Sends a weekly Sunday 20:00 reminder to clean Todoist Inbox
 - Saves forwarded messages to Todoist Inbox automatically
 - Exposes recent bot logs with `/logs` for quick diagnostics
 - Supports admin-only controls inside Telegram
@@ -146,6 +147,7 @@ volumes:
 - `/events` - show today's calendar events
 - `/admin` - open admin controls
 - `/morning_test` - send the morning digest immediately
+- `/weekly_inbox_test` - send weekly inbox reminder immediately
 - `/logs` - show recent bot log lines (admin only)
 
 Forwarded messages sent to the bot in a private chat are automatically saved to Todoist Inbox:
@@ -161,6 +163,7 @@ The admin panel in Telegram supports:
 - adding calendar ICS URLs
 - removing configured calendars
 - sending a test morning digest
+- sending a test weekly inbox reminder
 
 Only the user whose Telegram id matches `ADMIN_USER_ID` can use these actions.
 

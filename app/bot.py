@@ -68,6 +68,7 @@ def create_application(
                 [InlineKeyboardButton("🕒 Timezone", callback_data="admin:timezone")],
                 [InlineKeyboardButton("🗓 Calendars", callback_data="admin:calendars")],
                 [InlineKeyboardButton("🌅 Morning test", callback_data="admin:morning_test")],
+                [InlineKeyboardButton("📥 Weekly inbox test", callback_data="admin:weekly_inbox_test")],
                 [InlineKeyboardButton("⬅️ Назад", callback_data="nav:close")],
             ]
         )
@@ -196,6 +197,23 @@ def create_application(
             name="morning_digest",
         )
 
+    def schedule_weekly_inbox_reminder() -> None:
+        job_queue = application.job_queue
+        if job_queue is None:
+            return
+
+        for job in job_queue.get_jobs_by_name("weekly_inbox_reminder"):
+            job.schedule_removal()
+
+        timezone_name = application.bot_data["timezone"]
+        # python-telegram-bot run_daily days: 0=Monday ... 6=Sunday
+        job_queue.run_daily(
+            weekly_inbox_reminder_callback,
+            time=time(hour=20, minute=0, tzinfo=ZoneInfo(timezone_name)),
+            days=(6,),
+            name="weekly_inbox_reminder",
+        )
+
     def parse_task_date(date_value: str, timezone_name: str) -> date | None:
         if not date_value:
             return None
@@ -267,6 +285,31 @@ def create_application(
             grouped_tasks[project_name].append(task.get("content", "Untitled task"))
 
         return grouped_tasks
+
+    def get_inbox_task_count() -> int:
+        tasks = todoist_service.get_tasks()
+        projects = todoist_service.get_projects()
+
+        inbox_project_ids: set[str] = set()
+        for project in projects:
+            if not isinstance(project, dict):
+                continue
+            project_id = project.get("id")
+            if project_id is None:
+                continue
+
+            if project.get("is_inbox_project") is True:
+                inbox_project_ids.add(str(project_id))
+                continue
+
+            project_name = str(project.get("name", "")).strip().lower()
+            if project_name in {"inbox", "входящие"}:
+                inbox_project_ids.add(str(project_id))
+
+        if not inbox_project_ids:
+            return 0
+
+        return sum(1 for task in tasks if str(task.get("project_id")) in inbox_project_ids)
 
     def get_calendar_events_for_today(
         timezone_name: str,
@@ -377,6 +420,39 @@ def create_application(
         timezone_name = context.application.bot_data["timezone"]
         message = build_morning_digest_message(timezone_name)
         await context.bot.send_message(chat_id=admin_user_id, text=message)
+
+    async def weekly_inbox_reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
+        try:
+            inbox_count = get_inbox_task_count()
+        except Exception:
+            logger.exception("Failed to build weekly inbox reminder")
+            await context.bot.send_message(
+                chat_id=admin_user_id,
+                text="🔔 Weekly reminder: не удалось получить количество задач во входящих.",
+            )
+            return
+
+        await context.bot.send_message(
+            chat_id=admin_user_id,
+            text=(
+                "🔔 Weekly reminder\n"
+                "Разбери входящие в Todoist.\n"
+                f"Сейчас во входящих: {inbox_count} задач(и)."
+            ),
+        )
+
+    async def send_weekly_inbox_reminder_to_chat(
+        context: ContextTypes.DEFAULT_TYPE, chat_id: int
+    ) -> None:
+        inbox_count = get_inbox_task_count()
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "🔔 Weekly reminder\n"
+                "Разбери входящие в Todoist.\n"
+                f"Сейчас во входящих: {inbox_count} задач(и)."
+            ),
+        )
 
     async def send_morning_digest_to_chat(
         context: ContextTypes.DEFAULT_TYPE, chat_id: int
@@ -538,6 +614,20 @@ def create_application(
             await update.message.reply_text("Failed to send morning digest")
             return
 
+    async def weekly_inbox_test_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not is_admin(update):
+            await update.message.reply_text("❌ Access denied")
+            return
+
+        try:
+            await send_weekly_inbox_reminder_to_chat(context, update.effective_chat.id)
+        except Exception:
+            logger.exception("Failed to send weekly inbox test reminder")
+            await update.message.reply_text("Failed to send weekly inbox reminder")
+            return
+
     async def logs_command(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -614,6 +704,15 @@ def create_application(
                 return
             return
 
+        if query.data == "admin:weekly_inbox_test":
+            try:
+                await send_weekly_inbox_reminder_to_chat(context, update.effective_chat.id)
+            except Exception:
+                logger.exception("Failed to send weekly inbox reminder from admin menu")
+                await query.answer("Failed to send weekly inbox reminder", show_alert=True)
+                return
+            return
+
         if query.data == "admin:calendar:add":
             await show_add_calendar_menu(update, context, as_edit=True)
             return
@@ -663,6 +762,7 @@ def create_application(
             clear_user_state(context)
             context.application.bot_data["timezone"] = message_text
             schedule_morning_digest()
+            schedule_weekly_inbox_reminder()
             await update.message.reply_text(f"Timezone updated: {message_text}")
             await show_admin_menu(update, context, as_edit=False)
             return
@@ -704,6 +804,7 @@ def create_application(
     application.add_handler(CommandHandler("events", events_command))
     application.add_handler(CommandHandler("logs", logs_command))
     application.add_handler(CommandHandler("morning_test", morning_test_command))
+    application.add_handler(CommandHandler("weekly_inbox_test", weekly_inbox_test_command))
     application.add_handler(CommandHandler("tasks", tasks_command))
     application.add_handler(CallbackQueryHandler(admin_callback, pattern="^(admin:|nav:)"))
     application.add_handler(MessageHandler(filters.FORWARDED, forwarded_message_command))
@@ -712,4 +813,5 @@ def create_application(
     )
     application.add_error_handler(error_handler)
     schedule_morning_digest()
+    schedule_weekly_inbox_reminder()
     return application
