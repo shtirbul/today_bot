@@ -137,18 +137,26 @@ def create_application(
         latitude, longitude = location
         snapshot = weather_service.get_snapshot(latitude, longitude)
 
+        temp_min = round(snapshot.temperature_min_c)
+        temp_max = round(snapshot.temperature_max_c)
+        temp_min_sign = "+" if temp_min >= 0 else ""
+        temp_max_sign = "+" if temp_max >= 0 else ""
+
         lines = [
             "🌤 Погода (на день)",
-            f"🌡 Температура: {snapshot.temperature_min_c:.1f}…{snapshot.temperature_max_c:.1f}°C",
+            f"🌡 Температура: {temp_min_sign}{temp_min}…{temp_max_sign}{temp_max}°C",
         ]
 
-        precip = snapshot.precipitation_probability_max
+        precip = round(snapshot.precipitation_probability_max)
         if precip >= 30:
-            lines.append(f"☔ Высокая вероятность дождя: {precip:.0f}%")
+            lines.append(f"☔ Высокая вероятность дождя: {precip}%")
         else:
-            lines.append(f"🌦 Вероятность осадков (max): {precip:.0f}%")
+            if precip == 0:
+                lines.append("🌦 Вероятность осадков (max): 0% (без осадков)")
+            else:
+                lines.append(f"🌦 Вероятность осадков (max): {precip}%")
 
-        uv = snapshot.uv_index_max
+        uv = round(snapshot.uv_index_max, 1)
         if uv >= 5:
             lines.append(f"⚠️ UV index высокий (max): {uv:.1f}")
         else:
@@ -157,9 +165,11 @@ def create_application(
         if snapshot.us_aqi_avg is None:
             lines.append("😷 Качество воздуха: AQI unavailable")
         else:
+            aqi_avg = round(snapshot.us_aqi_avg)
+            aqi_max = round(snapshot.us_aqi_max) if snapshot.us_aqi_max is not None else aqi_avg
             lines.append(
-                f"😷 Качество воздуха: AQI avg {snapshot.us_aqi_avg:.0f}, max {snapshot.us_aqi_max:.0f} "
-                f"({aqi_label(snapshot.us_aqi_avg)})"
+                f"😷 Качество воздуха: {aqi_label(snapshot.us_aqi_avg)} "
+                f"(AQI {aqi_avg}, пик {aqi_max})"
             )
 
         return "\n".join(lines)
