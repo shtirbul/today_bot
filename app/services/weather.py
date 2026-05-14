@@ -9,10 +9,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class WeatherSnapshot:
-    temperature_c: float
-    precipitation_probability: float
-    uv_index: float
-    us_aqi: float | None
+    temperature_min_c: float
+    temperature_max_c: float
+    precipitation_probability_max: float
+    uv_index_max: float
+    us_aqi_avg: float | None
+    us_aqi_max: float | None
 
 
 class WeatherService:
@@ -37,40 +39,39 @@ class WeatherService:
         forecast_data = self._fetch_forecast(latitude, longitude)
         air_quality_data = self._fetch_air_quality(latitude, longitude)
 
-        current = forecast_data.get("current", {})
-        current_time = current.get("time")
-        temperature = float(current.get("temperature_2m"))
+        daily = forecast_data.get("daily", {})
+        temperature_min = float(self._safe_series_value(daily.get("temperature_2m_min", []), 0, default=0.0))
+        temperature_max = float(self._safe_series_value(daily.get("temperature_2m_max", []), 0, default=0.0))
+        precipitation_probability_max = float(
+            self._safe_series_value(daily.get("precipitation_probability_max", []), 0, default=0.0)
+        )
+        uv_index_max = float(self._safe_series_value(daily.get("uv_index_max", []), 0, default=0.0))
 
-        hourly = forecast_data.get("hourly", {})
-        hourly_times = hourly.get("time", [])
-        precip_probs = hourly.get("precipitation_probability", [])
-        uv_values = hourly.get("uv_index", [])
+        air_hourly = air_quality_data.get("hourly", {})
+        aqi_values_raw = air_hourly.get("us_aqi", [])
+        aqi_values = [float(v) for v in aqi_values_raw if v is not None]
 
-        try:
-            idx = hourly_times.index(current_time)
-        except ValueError:
-            idx = 0
-
-        precipitation_probability = float(self._safe_hourly_value(precip_probs, idx, default=0.0))
-        uv_index = float(self._safe_hourly_value(uv_values, idx, default=0.0))
-
-        air_current = air_quality_data.get("current", {})
-        us_aqi_raw = air_current.get("us_aqi")
-        us_aqi = float(us_aqi_raw) if us_aqi_raw is not None else None
+        if aqi_values:
+            us_aqi_avg = sum(aqi_values) / len(aqi_values)
+            us_aqi_max = max(aqi_values)
+        else:
+            us_aqi_avg = None
+            us_aqi_max = None
 
         return WeatherSnapshot(
-            temperature_c=temperature,
-            precipitation_probability=precipitation_probability,
-            uv_index=uv_index,
-            us_aqi=us_aqi,
+            temperature_min_c=temperature_min,
+            temperature_max_c=temperature_max,
+            precipitation_probability_max=precipitation_probability_max,
+            uv_index_max=uv_index_max,
+            us_aqi_avg=us_aqi_avg,
+            us_aqi_max=us_aqi_max,
         )
 
     def _fetch_forecast(self, latitude: float, longitude: float) -> dict:
         params = {
             "latitude": latitude,
             "longitude": longitude,
-            "current": "temperature_2m",
-            "hourly": "precipitation_probability,uv_index",
+            "daily": "temperature_2m_min,temperature_2m_max,precipitation_probability_max,uv_index_max",
             "timezone": "auto",
             "forecast_days": 1,
         }
@@ -89,8 +90,9 @@ class WeatherService:
         params = {
             "latitude": latitude,
             "longitude": longitude,
-            "current": "us_aqi",
+            "hourly": "us_aqi",
             "timezone": "auto",
+            "forecast_days": 1,
         }
         response = requests.get(
             "https://air-quality-api.open-meteo.com/v1/air-quality",
@@ -103,7 +105,7 @@ class WeatherService:
         logger.info("Air quality fetched for lat=%s lon=%s", latitude, longitude)
         return data
 
-    def _safe_hourly_value(self, values: list, index: int, *, default: float) -> float:
+    def _safe_series_value(self, values: list, index: int, *, default: float) -> float:
         if not values:
             return default
         if index < 0 or index >= len(values):

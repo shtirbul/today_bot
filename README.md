@@ -8,7 +8,7 @@ Telegram bot for a personal daily briefing. It combines Todoist tasks and iCal c
 - Shows events from one or more iCal calendars
 - Sends a scheduled morning digest
 - Sends a daily 20:00 reminder to clean Todoist Inbox
-- Adds weather to the morning digest (temperature, precipitation chance, UV, air quality)
+- Adds day weather forecast to the morning digest (temperature range, precipitation chance, UV, air quality)
 - Saves forwarded messages to Todoist Inbox automatically
 - Exposes recent bot logs with `/logs` for quick diagnostics
 - Supports admin-only controls inside Telegram
@@ -191,7 +191,7 @@ The entire `app/data/` directory is ignored by git.
 
 - Todoist requests use `https://api.todoist.com/api/v1`
 - weather uses Open-Meteo forecast + air quality endpoints
-- rain warning is highlighted when precipitation probability is `>=30%`
-- UV warning is highlighted when UV index is `>=5`
+- rain warning is highlighted when daily precipitation probability max is `>=30%`
+- UV warning is highlighted when daily UV index max is `>=5`
 - Calendar sources support both `https://` and `webcal://` URLs
 - If the bot says another instance is running, use `python3 -m app.stop` or remove a stale lock by starting the bot again after the old process is gone

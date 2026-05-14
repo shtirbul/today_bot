@@ -138,27 +138,28 @@ def create_application(
         snapshot = weather_service.get_snapshot(latitude, longitude)
 
         lines = [
-            "🌤 Погода (на сейчас)",
-            f"🌡 Температура: {snapshot.temperature_c:.1f}°C",
+            "🌤 Погода (на день)",
+            f"🌡 Температура: {snapshot.temperature_min_c:.1f}…{snapshot.temperature_max_c:.1f}°C",
         ]
 
-        precip = snapshot.precipitation_probability
+        precip = snapshot.precipitation_probability_max
         if precip >= 30:
-            lines.append(f"☔ Ожидается дождь: {precip:.0f}%")
+            lines.append(f"☔ Высокая вероятность дождя: {precip:.0f}%")
         else:
-            lines.append(f"🌦 Вероятность осадков: {precip:.0f}%")
+            lines.append(f"🌦 Вероятность осадков (max): {precip:.0f}%")
 
-        uv = snapshot.uv_index
+        uv = snapshot.uv_index_max
         if uv >= 5:
-            lines.append(f"⚠️ UV index высокий: {uv:.1f}")
+            lines.append(f"⚠️ UV index высокий (max): {uv:.1f}")
         else:
-            lines.append(f"☀️ UV index: {uv:.1f}")
+            lines.append(f"☀️ UV index (max): {uv:.1f}")
 
-        if snapshot.us_aqi is None:
+        if snapshot.us_aqi_avg is None:
             lines.append("😷 Качество воздуха: AQI unavailable")
         else:
             lines.append(
-                f"😷 Качество воздуха: AQI {snapshot.us_aqi:.0f} ({aqi_label(snapshot.us_aqi)})"
+                f"😷 Качество воздуха: AQI avg {snapshot.us_aqi_avg:.0f}, max {snapshot.us_aqi_max:.0f} "
+                f"({aqi_label(snapshot.us_aqi_avg)})"
             )
 
         return "\n".join(lines)
