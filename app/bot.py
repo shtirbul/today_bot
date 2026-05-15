@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import date, datetime, time
+import asyncio
 import logging
 from pathlib import Path
 import random
@@ -298,6 +299,23 @@ def create_application(
         parsed_datetime = datetime.fromisoformat(date_value.replace("Z", "+00:00"))
         return parsed_datetime.astimezone(ZoneInfo(timezone_name)).date()
 
+    def summarize_todoist_error(error: Exception) -> str:
+        text = str(error).strip()
+        lowered = text.lower()
+        if "429" in lowered:
+            return "Todoist rate limit (HTTP 429)"
+        if "timeout" in lowered or "timed out" in lowered:
+            return "Todoist timeout"
+        if "401" in lowered:
+            return "Todoist auth error (HTTP 401)"
+        if "403" in lowered:
+            return "Todoist access denied (HTTP 403)"
+        if "500" in lowered or "502" in lowered or "503" in lowered or "504" in lowered:
+            return "Todoist temporary server error"
+        if text:
+            return text[:120]
+        return "unknown Todoist error"
+
     def is_task_for_today_or_overdue(task: dict, timezone_name: str) -> bool:
         today = datetime.now(ZoneInfo(timezone_name)).date()
 
@@ -343,11 +361,20 @@ def create_application(
         )
 
     def get_tasks_grouped_for_today(timezone_name: str) -> dict[str, list[str]]:
+        today = datetime.now(ZoneInfo(timezone_name)).date()
         tasks = todoist_service.get_tasks()
+        tasks_total = len(tasks)
         projects = todoist_service.get_projects()
         tasks = [
             task for task in tasks if is_task_for_today_or_overdue(task, timezone_name)
         ]
+        logger.info(
+            "Morning Todoist snapshot: timezone=%s today=%s tasks_total=%d tasks_after_filter=%d",
+            timezone_name,
+            today.isoformat(),
+            tasks_total,
+            len(tasks),
+        )
 
         project_names = {
             project["id"]: project["name"] for project in projects if "id" in project
@@ -457,8 +484,9 @@ def create_application(
 
         return "\n".join(lines).rstrip()
 
-    def build_morning_digest_message(timezone_name: str) -> str:
+    def build_morning_digest_message(timezone_name: str) -> tuple[str, bool]:
         lines = ["🌅 Доброе утро!", ""]
+        todoist_failed = False
 
         try:
             weather_message = build_weather_message()
@@ -469,14 +497,16 @@ def create_application(
 
         try:
             grouped_tasks = get_tasks_grouped_for_today(timezone_name)
-        except Exception:
+        except Exception as error:
+            todoist_failed = True
             logger.exception("Failed to fetch Todoist tasks for morning digest")
+            reason = summarize_todoist_error(error)
             grouped_tasks = {}
             lines.extend(
                 [
                     "📋 Задачи на сегодня:",
                     "",
-                    "Не удалось загрузить задачи.",
+                    f"Не удалось загрузить задачи: {reason}.",
                     "",
                 ]
             )
@@ -513,11 +543,30 @@ def create_application(
                 lines.append("Warnings:")
                 lines.extend(f"• {source}" for source in warning_sources)
 
-        return "\n".join(lines).rstrip()
+        return "\n".join(lines).rstrip(), todoist_failed
 
     async def morning_digest_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
         timezone_name = context.application.bot_data["timezone"]
-        message = build_morning_digest_message(timezone_name)
+        message, todoist_failed = build_morning_digest_message(timezone_name)
+
+        if todoist_failed:
+            logger.warning(
+                "Morning digest Todoist failed on first attempt; retrying in 45s (timezone=%s)",
+                timezone_name,
+            )
+            await asyncio.sleep(45)
+            retry_message, retry_todoist_failed = build_morning_digest_message(timezone_name)
+            message = retry_message
+            if retry_todoist_failed:
+                logger.error(
+                    "Morning digest Todoist failed after retry (timezone=%s)",
+                    timezone_name,
+                )
+            else:
+                logger.info(
+                    "Morning digest Todoist retry succeeded (timezone=%s)",
+                    timezone_name,
+                )
         await context.bot.send_message(chat_id=admin_user_id, text=message)
 
     async def inbox_reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -549,7 +598,7 @@ def create_application(
         context: ContextTypes.DEFAULT_TYPE, chat_id: int
     ) -> None:
         timezone_name = context.application.bot_data["timezone"]
-        message = build_morning_digest_message(timezone_name)
+        message, _ = build_morning_digest_message(timezone_name)
         await context.bot.send_message(chat_id=chat_id, text=message)
 
     async def show_admin_menu(
