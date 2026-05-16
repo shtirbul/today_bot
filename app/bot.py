@@ -389,6 +389,7 @@ def create_application(
 
     def get_inbox_task_count() -> int:
         tasks = todoist_service.get_tasks()
+        tasks_total = len(tasks)
         projects = todoist_service.get_projects()
 
         inbox_project_ids: set[str] = set()
@@ -408,11 +409,41 @@ def create_application(
                 inbox_project_ids.add(str(project_id))
 
         if not inbox_project_ids:
+            logger.info(
+                "Inbox reminder Todoist snapshot: tasks_total=%d inbox_projects=0 inbox_count=0",
+                tasks_total,
+            )
             return 0
 
-        return sum(1 for task in tasks if str(task.get("project_id")) in inbox_project_ids)
+        inbox_count = sum(
+            1 for task in tasks if str(task.get("project_id")) in inbox_project_ids
+        )
+        logger.info(
+            "Inbox reminder Todoist snapshot: tasks_total=%d inbox_projects=%d inbox_count=%d",
+            tasks_total,
+            len(inbox_project_ids),
+            inbox_count,
+        )
+        return inbox_count
 
-    def build_inbox_reminder_message(inbox_count: int) -> str:
+    def fetch_inbox_reminder_data() -> tuple[int | None, str | None]:
+        try:
+            return get_inbox_task_count(), None
+        except Exception as error:
+            logger.exception("Failed to fetch inbox tasks for reminder")
+            return None, summarize_todoist_error(error)
+
+    def build_inbox_reminder_message(
+        inbox_count: int = 0,
+        *,
+        error_reason: str | None = None,
+    ) -> str:
+        if error_reason:
+            return (
+                "🔔 Daily reminder\n"
+                f"Не удалось получить задачи во входящих: {error_reason}."
+            )
+
         if inbox_count > 0:
             return (
                 "🔔 Daily reminder\n"
@@ -570,29 +601,43 @@ def create_application(
         await context.bot.send_message(chat_id=admin_user_id, text=message)
 
     async def inbox_reminder_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
-        try:
-            inbox_count = get_inbox_task_count()
-        except Exception:
-            logger.exception("Failed to build daily inbox reminder")
-            await context.bot.send_message(
-                chat_id=admin_user_id,
-                text="🔔 Daily reminder: не удалось получить количество задач во входящих.",
-            )
-            return
+        timezone_name = context.application.bot_data["timezone"]
+        inbox_count, error_reason = fetch_inbox_reminder_data()
 
-        await context.bot.send_message(
-            chat_id=admin_user_id,
-            text=build_inbox_reminder_message(inbox_count),
-        )
+        if error_reason:
+            logger.warning(
+                "Inbox reminder Todoist failed on first attempt; retrying in 45s (timezone=%s)",
+                timezone_name,
+            )
+            await asyncio.sleep(45)
+            inbox_count, error_reason = fetch_inbox_reminder_data()
+            if error_reason:
+                logger.error(
+                    "Inbox reminder Todoist failed after retry (timezone=%s)",
+                    timezone_name,
+                )
+            else:
+                logger.info(
+                    "Inbox reminder Todoist retry succeeded (timezone=%s)",
+                    timezone_name,
+                )
+
+        if error_reason:
+            message = build_inbox_reminder_message(error_reason=error_reason)
+        else:
+            message = build_inbox_reminder_message(inbox_count or 0)
+
+        await context.bot.send_message(chat_id=admin_user_id, text=message)
 
     async def send_inbox_reminder_to_chat(
         context: ContextTypes.DEFAULT_TYPE, chat_id: int
     ) -> None:
-        inbox_count = get_inbox_task_count()
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=build_inbox_reminder_message(inbox_count),
-        )
+        inbox_count, error_reason = fetch_inbox_reminder_data()
+        if error_reason:
+            message = build_inbox_reminder_message(error_reason=error_reason)
+        else:
+            message = build_inbox_reminder_message(inbox_count or 0)
+        await context.bot.send_message(chat_id=chat_id, text=message)
 
     async def send_morning_digest_to_chat(
         context: ContextTypes.DEFAULT_TYPE, chat_id: int
